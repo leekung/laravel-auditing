@@ -17,7 +17,7 @@ trait AuditingTrait
     /**
      * @var array
      */
-    private $dontKeep = [];
+    private $dontKeep = ['created_at', 'updated_at'];
 
     /**
      * @var array
@@ -238,17 +238,41 @@ trait AuditingTrait
     public function audit(array $log, $type)
     {
         $logAuditing = [
-            'old_value'  => json_encode($log['old_value']),
-            'new_value'  => json_encode($log['new_value']),
+            'old_value'  => json_encode($log['old_value'], JSON_UNESCAPED_UNICODE),
+            'new_value'  => json_encode($log['new_value'], JSON_UNESCAPED_UNICODE),
             'owner_type' => get_class($this),
             'owner_id'   => $this->getKey(),
+            'parent_type' => $this->getParentType(),
+            'parent_id'   => $this->getParentId(),
             'user_id'    => $this->getUserId(),
+            'locale'       => \App::getLocale(),
             'type'       => $type,
             'created_at' => new \DateTime(),
             'updated_at' => new \DateTime(),
         ];
 
         return Log::insert($logAuditing);
+    }
+
+    protected function getParentType()
+    {
+        if (isset($this->translationModel)) {
+            return '';
+        }
+
+        return str_replace(config('translatable.translation_suffix', 'Translation'), '', get_class($this));
+    }
+
+    protected function getParentId()
+    {
+        if (isset($this->translationModel)) {
+            return '';
+        }
+
+        $parent_class = str_replace(config('translatable.translation_suffix', 'Translation'), '', class_basename($this));
+        $parent_id = \Illuminate\Support\Str::snake($parent_class).'_id';
+
+        return isset($this->{$parent_id}) ? $this->{$parent_id} : '';
     }
 
     /**
@@ -259,8 +283,9 @@ trait AuditingTrait
     protected function getUserId()
     {
         try {
-            if (\Auth::check()) {
-                return \Auth::user()->getAuthIdentifier();
+            $auth = app('Modules\Core\Contracts\Authentication');
+            if ($auth->check()) {
+                return $auth->id();
             }
         } catch (\Exception $e) {
             return;
